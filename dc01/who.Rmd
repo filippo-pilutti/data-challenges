@@ -6,7 +6,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(cache = TRUE, message=FALSE, warning=FALSE, eval=TRUE, echo=FALSE)
+knitr::opts_chunk$set(cache = FALSE, message=FALSE, warning=FALSE, eval=TRUE, echo=FALSE)
 ```
 
 The `tidyr::who` dataset contains tuberculosis (TB) cases broken down by year, country, age, gender, and diagnosis method. The data comes from the 2014 [World Health Organization Global Tuberculosis Report](http://www.who.int/tb/country/data/download/en/). There's a wealth of epidemiological information in this dataset, but it's challenging to work with the data in the form that it's provided.
@@ -51,13 +51,17 @@ library(tidyr)
 library(dplyr)
 ```
 
+```{r}
+View(who)
+```
+
 
 ### Step 1: gather
 Gather together all the columns from `new_sp_m014` to `newrel_f65`. Use the variable `key` for the gathered columns and variable `cases` for the values. Notice there are a lot of missing values in the current representation, so use `values_drop_na` to remove them.
 
 ```{r eval=FALSE, echo=TRUE}
 who1 <- who %>% 
-  pivot_longer(___, names_to = ___, values_to = ___, values_drop_na = ___)
+  pivot_longer(cols = new_sp_m014:newrel_f65, names_to = "key", values_to = "cases", values_drop_na = TRUE)
 who1
 ```
 
@@ -68,7 +72,7 @@ We need to make a minor fix to the format of the column names: unfortunately the
 
 ```{r eval=FALSE, echo=TRUE}
 who2 <- who1 %>% 
-  mutate(key = stringr::str_replace(___, ___, ___))
+  mutate(key = stringr::str_replace(key, "newrel", "new_rel"))
 who2
 ```
 
@@ -79,7 +83,7 @@ Separate the values in each code with three passes of `separate()`. First, separ
 
 ```{r eval=FALSE, echo=TRUE}
 who3 <- who2 %>% 
-  ___(___, into = ___, sep = "___")
+  separate(key, into = c('new','type','sexage'), sep = "_")
 who3
 ```
 
@@ -88,7 +92,7 @@ Next separate `sexage` into `sex` and `age` by splitting after the first charact
 
 ```{r eval=FALSE, echo=TRUE}
 who4 <- who3 %>% 
-  ___(___, into = ___, sep = ___)
+  separate(sexage, into = c('sex','age'), sep = 1)
 who4
 ```
 
@@ -97,9 +101,10 @@ Finally separate `age` into `age_low` and `age_high` by splitting after the seco
 
 ```{r eval=FALSE, echo=TRUE}
 who5 <- who4 %>% 
-  mutate(age = stringr::str_replace(___, ___, ___)) %>%
-  mutate(age = stringr::str_replace(___, ___, ___)) %>%
-  separate(___, into = ___, sep = ___)
+  mutate(age = stringr::str_replace(age, "014", "0014")) %>%
+  mutate(age = stringr::str_replace(age, "65", "65100")) %>%
+  separate(age, into = c('age_low','age_high'), sep = 2)
+who5
 ```
 
 
@@ -110,11 +115,11 @@ Check that the `new` column is constant in this dataset. Hence drop column `new`
 
 ```{r eval=FALSE, echo=TRUE}
 # check that new is constant
-who5 %>% ___
+who5 %>% distinct(new)
 
 # drop redundant columns
 who6 <- who5 %>% 
-  ___(___, ___, ___)
+  select(-new, -iso2, -iso3)
 who6
 ```
 
@@ -122,6 +127,18 @@ who6
 
 You have written the code a piece at a time, assigning each interim result to a new variable. Instead, gradually build up a complex pipe.
 
+```{r echo=TRUE}
+who_tidy <- who |>
+  pivot_longer(cols = new_sp_m014:newrel_f65, names_to = "key", values_to = "cases", values_drop_na = TRUE) |>
+  mutate(key = stringr::str_replace(key, "newrel", "new_rel")) |>
+  separate(key, into = c('new','type','sexage'), sep = "_") |>
+  separate(sexage, into = c('sex','age'), sep = 1) |>
+  mutate(age = stringr::str_replace(age, "014", "0014")) |>
+  mutate(age = stringr::str_replace(age, "65", "65100")) |>
+  separate(age, into = c('age_low','age_high'), sep = 2) |>
+  select(-new, -iso2, -iso3)
+who_tidy
+```
 
 
 
