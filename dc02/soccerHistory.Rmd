@@ -6,9 +6,16 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-# cache results
 knitr::opts_chunk$set(cache=FALSE, echo = TRUE, eval = TRUE, message=FALSE, warning = FALSE, fig.align='center')
+
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+library(tidyr)
 ```
+
 This challenge explores all matches of Italian soccer Serie A league from 1993 to current year. The dataset is contained in the website [football-data.co.uk](http://www.football-data.co.uk/italym.php). 
 
 ### Challenges
@@ -17,15 +24,9 @@ This challenge explores all matches of Italian soccer Serie A league from 1993 t
 1. Using dplyr and tidyr packages (no for loops!), compute statistics for every team (matches, wins, loses, draws, points, points per match). Hint: mutate a column with the outcome of the match (for instance, H = home teams wins, A = away team wins, P = draw). Then group by team and outcome (home and away) and hence spread the outcome. Do this step without the use of AI.
 1. Come up with at least 3 data questions on the data at hand. Just write the questions, do not find the answers.
 
-Scrape the website to import the data.
-```{r}
-library(readr)
-library(dplyr)
-library(stringr)
-library(purrr)
-library(lubridate)
-library(tidyr)
 
+### Data scraping from the website
+```{r}
 # 1. Season codes
 start_years <- 1993:2026
 codes <- str_c(
@@ -33,11 +34,11 @@ codes <- str_c(
   sprintf("%02d", (start_years + 1) %% 100)
 )
 
-# 2. URL dei file
+# 2. Files URL
 base_url <- "http://www.football-data.co.uk/mmz4281/"
 urls <- str_c(base_url, codes, "/I1.csv")
 
-# 3. Funzione che legge e pulisce UNA stagione
+# 3. Function to read and clean one season
 read_season <- function(url, code) {
   read_csv(url,
            col_types = cols(.default = col_character()),
@@ -52,21 +53,20 @@ read_season <- function(url, code) {
     )
 }
 
-# 4. Applicare la funzione a tutte le stagioni e unire
-serie_a <- map2(urls, codes, read_season) |>
-  bind_rows()
-
-# 5. Salvare su disco
-write_csv(serie_a, "serie_a.csv")
-
-View(serie_a)
+# 4. Create the data frame
+if (file.exists("serie_a.csv")) {
+  serie_a <- read_csv("serie_a.csv")
+} else {
+  serie_a <- map2(urls, codes, read_season) |> bind_rows()
+  write_csv(serie_a, "serie_a.csv")
+}
 ```
 
 
 ### Compute statistics for every team
 
 First of all we want to add a column containing the match's outcome
-```{r}
+```{r results='hide'}
 serie_a <- serie_a |>
   mutate(result = case_when(
     FTHG > FTAG ~ "H",
@@ -76,10 +76,18 @@ serie_a <- serie_a |>
 serie_a
 ```
 
+We check if there are any NA values
+```{r}
+sum(is.na(serie_a$Date))
+sum(is.na(serie_a$FTHG)) + sum(is.na(serie_a$FTAG))
+sum(is.na(serie_a$result)) 
+```
+
+
 #### Matches stats
 
 I will first create two different tables for the team statistics: one for the home games and one for the away games
-```{r}
+```{r results='hide'}
 # Home games data frame
 home_games <- serie_a |>
   group_by(HomeTeam, result) |>
@@ -88,10 +96,10 @@ home_games <- serie_a |>
   pivot_wider(names_from = result, values_from = n, values_fill = 0) |>
   # Rename columns: if the away team won, it is a loss for the home team
   rename(loss_home = A, win_home = H, draw_home = P)
-
 home_games
 ```
-```{r}
+
+```{r results='hide'}
 # Away games data frame
 away_games <- serie_a |>
   group_by(AwayTeam, result) |>
@@ -100,16 +108,15 @@ away_games <- serie_a |>
   pivot_wider(names_from = result, values_from = n, values_fill = 0) |>
   # Rename columns: if the home team won, it is a loss for the away team
   rename(loss_away = H, win_away = A, draw_away = P)
-
 away_games
 ```
 
 Now we can join the two tables, obtaining comprehensive statistics for each team.
-```{r}
-# We can use a left_join, since we know that each team always please both home
+```{r results='hide'}
+# We can use a left_join, since we know that each team always plays both home
 # and away.
 matches <- left_join(home_games, away_games, by = c("HomeTeam" = "AwayTeam")) |>
-  rename(Team = HomeTeam)
+  rename(team = HomeTeam)
 matches
 ```
 
@@ -118,13 +125,13 @@ We want to add additional statistics to the data: total wins, losses and draws, 
 ```{r}
 matches <- matches |>
   mutate(
-    Win = win_home + win_away,
-    Loss = loss_home + loss_away,
-    Draw = draw_home + draw_away,
-    Matches = Win + Loss + Draw,
-    Points = Win * 3 + Draw,
-    PPG = Points / Matches) |>
-  select(Team, Matches, Win, Loss, Draw, Points, PPG, everything())
+    wins = win_home + win_away,
+    losses = loss_home + loss_away,
+    draws = draw_home + draw_away,
+    matches = wins + losses + draws,
+    points = wins * 3 + draws,
+    points_per_game = points / matches) |>
+  select(team, matches, wins, losses, draws, points, points_per_game, everything())
 matches
 ```
 
@@ -140,21 +147,24 @@ nrow(matches)
 sum(is.na(matches))
 
 # Total matches counted must be twice the number of rows in serie_a
-sum(matches$Matches) == 2 * nrow(serie_a)
+sum(matches$matches) == 2 * nrow(serie_a)
 
 # Every win has a matching loss
-sum(matches$Win) == sum(matches$Loss)
+sum(matches$wins) == sum(matches$losses)
 
 # Draws are counted by two teams per match
-sum(matches$Draw) %% 2 == 0
+sum(matches$draws) %% 2 == 0
 
-View(matches)
+total_home <- home_games |> select(where(is.numeric)) |> sum()
+total_away <- away_games |> select(where(is.numeric)) |> sum()
+stopifnot(total_home == nrow(serie_a), total_away == nrow(serie_a))
 ```
 
 #### Goals stats
 
 As before, I have to create two tables: one for home and one for away matches
-```{r}
+```{r results='hide'}
+# Data frame for goals scored from home teams
 home_goals <- serie_a |>
   group_by(HomeTeam) |>
   summarise(
@@ -163,7 +173,9 @@ home_goals <- serie_a |>
 
 home_goals
 ```
-```{r}
+
+```{r results='hide'}
+# Data frame for goals scored from away teams
 away_goals <- serie_a |>
   group_by(AwayTeam) |>
   summarise(goals_scored_away = sum(FTAG),
@@ -172,32 +184,84 @@ away_goals
 ```
 
 As before, we now join the two frames
-```{r}
+```{r results='hide'}
 goals <- left_join(home_goals, away_goals, by = c("HomeTeam" = "AwayTeam")) |>
-  rename(Team = HomeTeam)
+  rename(team = HomeTeam)
 goals
 ```
 
-We can add additional derived variables
+We can add additional derived variables: total goals scored and conceded, goal difference
 ```{r}
 goals <- goals |>
   mutate(
     goals_scored = goals_scored_home + goals_scored_away,
     goals_conceded = goals_conceded_home + goals_conceded_away,
     goal_diff = goals_scored - goals_conceded) |>
-  select(Team, goals_scored, goals_conceded, goal_diff, everything())
+  select(team, goals_scored, goals_conceded, goal_diff, everything())
 goals
 ```
 
+Safety checks on goals data
+```{r}
+sum(goals$goals_scored) == sum(goals$goals_conceded)
+sum(goals$goals_scored) == sum(serie_a$FTHG) + sum(serie_a$FTAG)
+sum(goals$goal_diff) == 0
+```
+
+#### Seasons stats
+
+I also want to keep the data for all the seasons that a team has played in the 
+Serie A.
+
+```{r}
+# Season as a factor: the levels fix the chronological order
+serie_a <- serie_a |>
+  mutate(Season = factor(Season, levels = codes))
+
+# One row per team and season (team seen as home OR away team)
+team_seasons <- bind_rows(
+  serie_a |> select(team = HomeTeam, season = Season),
+  serie_a |> select(team = AwayTeam, season = Season)
+) |>
+  distinct() |>
+  arrange(team, season)
+
+# One row per team: number of seasons and the vector of seasons
+seasons_by_team <- team_seasons |>
+  group_by(team) |>
+  summarise(
+    n_seasons = n(),
+    seasons = list(as.character(season))
+  )
+seasons_by_team
+```
+
+Safety checks on seasons frame
+```{r}
+# Seasons per team cannot exceed the number of seasons downloaded
+max(seasons_by_team$n_seasons) <= length(codes)
+
+# No missing values in the new columns
+sum(is.na(seasons_by_team$n_seasons))
+
+# Each full season should have 18 teams (until 2003/04) or 20 (from 2004/05)
+count(team_seasons, season)
+```
+
+
+
 #### Complete stats
 
-We build the data frame containing all the statistics by joining the matches and
-goals frames by the shared key Team
+We build the data frame containing all the statistics by joining the matches, goals and seasons frames by the shared key 'team'.
 ```{r}
-stats <- left_join(matches, goals, by = "Team") |>
-  select(Team, Matches, Win, Loss, Draw, Points, PPG, goals_scored, goals_conceded, goal_diff, everything())
+stats <- left_join(matches, goals, by = "team") |>
+  left_join(seasons_by_team, by = "team") |>
+  select(team, matches, wins, losses, draws, points, points_per_game, goals_scored, goals_conceded, goal_diff, everything())
 stats
 ```
+
+
+
 
 
 
@@ -210,3 +274,7 @@ stats
 2 - Which correlation is there, if any, between goals difference and total scored points?
 
 3 - Which are the teams that scored more points while playing away?
+
+4 - Which teams have been missing from Serie A the longest?
+
+5 - Which teams have consecutively been in the league for longer?
