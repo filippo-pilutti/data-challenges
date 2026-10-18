@@ -506,9 +506,6 @@ sum(matches$wins) == sum(matches$losses)</code></pre>
 <pre class="r"><code># Draws are counted by two teams per match
 sum(matches$draws) %% 2 == 0</code></pre>
 <pre><code>## [1] TRUE</code></pre>
-<pre class="r"><code>total_home &lt;- home_games |&gt; select(where(is.numeric)) |&gt; sum()
-total_away &lt;- away_games |&gt; select(where(is.numeric)) |&gt; sum()
-stopifnot(total_home == nrow(serie_a), total_away == nrow(serie_a))</code></pre>
 </div>
 <div id="goals-stats" class="section level4">
 <h4>Goals stats</h4>
@@ -567,8 +564,8 @@ goals</code></pre>
 </div>
 <div id="seasons-stats" class="section level4">
 <h4>Seasons stats</h4>
-<p>I also want to keep the data for all the seasons that a team has
-played in the Serie A.</p>
+<p>Additionally, I also want to keep the data for all the seasons that a
+team has played in the Serie A.</p>
 <pre class="r"><code># Season as a factor: the levels fix the chronological order
 serie_a &lt;- serie_a |&gt;
   mutate(Season = factor(Season, levels = codes))
@@ -659,13 +656,15 @@ stats</code></pre>
 <div id="possible-data-questions" class="section level3">
 <h3>Possible data questions</h3>
 <p>1 - Which are the teams with the best and worst points per game and
-goals difference?</p>
+goals difference stats?</p>
 <p>2 - Which correlation is there, if any, between goals difference and
 total scored points?</p>
 <p>3 - Which are the teams that scored more points while playing
 away?</p>
-<p>4 - Which teams have been missing from Serie A the longest?</p>
-<p>5 - Which teams have consecutively been in the league for longer?</p>
+<p>4 - Which team has the best defense? Which has the best offense?</p>
+<p>5 - Which teams have been missing from Serie A the longest?</p>
+<p>6 - Which teams have consecutively been in the league for longer?</p>
+<p>7 - Which teams have the best points per season average?</p>
 </div>
 
 

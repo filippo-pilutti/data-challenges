@@ -51,10 +51,6 @@ library(tidyr)
 library(dplyr)
 ```
 
-```{r}
-View(who)
-```
-
 
 ### Step 1: gather
 Gather together all the columns from `new_sp_m014` to `newrel_f65`. Use the variable `key` for the gathered columns and variable `cases` for the values. Notice there are a lot of missing values in the current representation, so use `values_drop_na` to remove them.
