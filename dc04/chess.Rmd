@@ -1,12 +1,21 @@
 ---
 title: "The Elo method in chess"
-output: html_document
-editor_options: 
-  chunk_output_type: inline
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(cache=FALSE, message=FALSE)
+# Show more significant digits when printing tibbles
+options(pillar.sigfig = 5)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
 ```
 
 **Elo method** was coined by the physics professor and excellent chess player Arpad Elo. In 1970, FIDE, the World Chess Federation, agreed to adopt the Elo Rating System.
@@ -68,3 +77,220 @@ This challenge is ispired by [Chess ratings - Elo versus the Rest of the World](
 1.  Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Obserse its distribution: why is different from the point distribution?  Verify the 0-sum property for Elo's ratings
 1.  Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
 1. Test if the number of played games has an effect on the Elo and point player ratings
+
+
+
+
+### Data loading
+
+First thing, we want to load and check the data from the given csv file.
+
+```{r}
+# Load data from csv and define variables types
+chess <- read_csv(
+  "data.csv",
+  col_types = cols(
+    White = col_integer(),
+    Black = col_integer(),
+    Score = col_double()
+))
+```
+
+We want to inspect the data and check for missing values or errors.
+
+```{r}
+glimpse(chess)
+
+# Number of missing values
+colSums(is.na(chess))
+
+# Score can only be 0, 0.5 or 1
+count(chess, Score)
+
+# A player should not play against himself
+sum(chess$White == chess$Black)
+```
+The data is clean, meaning no missing values and coherent with the subject.
+
+```{r}
+# All distinct player ids, appearing as White or as Black
+players <- union(chess$White, chess$Black)
+length(players)
+range(players)
+```
+By inspecting the data, we find out that we have 65,053 different games on record, with 7301 distinct non-consecutive player ids, since the possible ids range from 1 to 8631.
+
+### Challenge 1 - Has the White an advantage over the Black, that is, is there a first-mover advantage?
+
+Intuitively, starting first White should have an advantage over Black, but we want to empirically show it.
+
+The idea is that, if color wouldn't count, White and Black should both get an average of 0.5 points per game. This means that, excluding games which end in a draw, White should win as often as Black. We then want to measure how much the data differs from this scenario, to understand how much of an advantage it is moving first.
+
+```{r}
+outcomes <- chess |>
+  count(Score) |>
+  mutate(proportion = n / sum(n))
+outcomes
+```
+
+We see that White wins 32% of total games, versus the 23% of wins of the Black.
+
+We can also compute a mean score for White.
+
+```{r}
+mean(chess$Score)
+```
+Then we have that from the data it shows that White has a slight advantage over Black.
+
+
+### Challenge 2 - Write a function that computes the player point rating (1 point for wins, 0.5 points for draws, 0 points for defeats). How are point ratings distributed? Why?
+
+```{r}
+# Compute the player rating of a player, given its id
+player_points <- function(id, data) {
+  # Games played as White: the player gets "Score" points
+  points_as_white <- sum(data$Score[data$White == id])
+  # Games played as Black: the player gets "1 - Score" points
+  points_as_black <- sum(1 - data$Score[data$Black == id])
+  points_as_white + points_as_black
+}
+
+# Get all distinct player ids
+players <- union(chess$White, chess$Black)
+
+# Apply points function to all players
+point_rating <- tibble(
+  player = players,
+  points = sapply(players, player_points, data = chess)
+) |>
+  arrange(desc(points))
+point_rating
+
+# Safety check: total points must equal the number of games
+sum(point_rating$points)
+nrow(chess)
+```
+
+Now that we have computed the points scored by each player, let's visualize how they are distributed.
+
+```{r}
+summary(point_rating$points)
+```
+
+```{r echo=FALSE}
+# Histogram
+ggplot(point_rating, aes(x = points)) +
+  geom_histogram(binwidth = 5, fill = "steelblue") + 
+  labs(title = "Point ratings distribution",
+       x = "Total points",
+       y = "Number of players") +
+  theme_minimal()
+```
+
+
+From the plot, it's easy to see that the distribution is highly asymmetrical: median is 3, average is 8.9, and most of the players have scored less than 5 points. The main reason is because the point rating is a sum, meaning that it increases with the number of played games, reproducing its distribution. We can see that the histogram of total played games looks really similar to the one for the point rating:
+
+```{r echo=FALSE}
+games_played <- tibble(player = c(chess$White, chess$Black)) |>
+  count(player, name = "games")
+
+ggplot(games_played, aes(x = games)) + 
+  geom_histogram(binwidth = 5, fill = "steelblue1") +
+  labs(title = "Total played games distribution",
+       x = "Played games",
+       y = "Number of players") +
+  theme_minimal()
+```
+
+Most of the players have not played many games, and that reflects also on the points distribution.
+
+### Challenge 3 - An interesting property of Elo's ratings is that the sum of all player ratings is always 0. Formally show this property. (Hint: use the fact that $s_{i,j} + s_{j,i}=1$ and $\mu_{i,j} + \mu_{j,i} =1$)
+
+**Proof.** All players start with a rating of 0, so initially the sum of all ratings is obviously 0. Consider then a game between players $i$ and $j$: only their two ratings will change after the game, and the sum will change by
+
+$$
+\kappa (s_{i,j} - \mu_{i,j}) + \kappa (s_{j,i} - \mu_{j,i})
+= \kappa ((s_{i,j} + s_{j,i}) - (\mu_{i,j} + \mu_{j,i}))
+= \kappa (1 - 1) = 0.
+$$
+Hence every game leaves the total sum unchanged, and the sum of all ratings is always 0.
+
+
+### Challenge 4 - Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Observe its distribution: why is different from the point distribution?  Verify the 0-sum property for Elo's ratings
+
+It's not possible to write a function the computes the ELO of a single player, as I did with the points rating before, since ELO computation needs the current ELO of both players for every single match. So I will write a function that computes it for all the players, game by game, in chronological order.
+```{r}
+# ELO function
+elo_rating <- function(data, zeta = 400, kappa = 25) {
+  
+  # Create a vector for each possible id, all starting at rating 0
+  rating <- rep(0, max(data$White, data$Black))
+  
+  for (k in 1:nrow(data)) {
+    i <- data$White[k]
+    j <- data$Black[k]
+    # Expected score of white, using rating values from before the game
+    mu <- 1 / (1 + 10^(-(rating[i] - rating[j]) / zeta))
+    # Using zero-sum property, Black gets opposite rating change than White
+    delta <- kappa * (data$Score[k] - mu)
+    rating[i] <- rating[i] + delta
+    rating[j] <- rating[j] - delta
+  }
+  
+  # We keep the ids of only players that actually played
+  players <- union(data$White, data$Black)
+  tibble(player = players, elo = rating[players]) |>
+    arrange(desc(elo))
+}
+```
+
+```{r}
+elo <- elo_rating(chess)
+elo
+
+summary(elo$elo)
+```
+
+```{r echo=FALSE}
+ggplot(elo, aes(x = elo)) +
+  geom_histogram(binwidth = 5, fill = "steelblue4") +
+  labs(title = "ELO rating distribution",
+       x = "ELO",
+       y = "Number of players") + 
+  theme_minimal()
+```
+
+Differently from the points distribution, here we have a peak on value 0, and two tails toward negative values and high positive values. This is because ELO is not additive: it does not accumulate while playing more. A player gains ELO points only by behaving better than predicted and loses them by doing worse.
+
+Main characteristics:
+- There are negative values e and the mean is exactly 0
+- There is a peak at around 0: many players have very few games on record, and every game barely moves their rating.
+- The tails are composed by players who played a lot of games. Only with lots of games, the rating has the time to significantly move away from 0.
+
+Let's verify the 0-sum property:
+```{r}
+sum(elo$elo)
+all.equal(sum(elo$elo), 0)
+```
+
+The sum is not exactly 0, but a really small number (7.638334e-13). This is due to very small rounding errors on big number of data rows. Using all.equal to check for the equality returns TRUE, since it allows for a very small tolerance.
+
+
+### Challenge 5 - Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
+
+First thing, we create a table containing both ratings for every player, and we visualize the data.
+```{r}
+ratings <- inner_join(point_rating, elo, by = "player")
+ratings
+```
+
+```{r echo=FALSE}
+ggplot(ratings, aes(x = points, y = elo)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Point rating vs. ELO rating",
+       x = "Points",
+       y = "ELO") +
+  theme_minimal()
+```
+
+
