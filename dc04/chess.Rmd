@@ -120,7 +120,8 @@ range(players)
 ```
 By inspecting the data, we find out that we have 65,053 different games on record, with 7301 distinct non-consecutive player ids, since the possible ids range from 1 to 8631.
 
-### Challenge 1 - Has the White an advantage over the Black, that is, is there a first-mover advantage?
+### Challenge 1
+#### Has the White an advantage over the Black, that is, is there a first-mover advantage?
 
 Intuitively, starting first White should have an advantage over Black, but we want to empirically show it.
 
@@ -143,7 +144,8 @@ mean(chess$Score)
 Then we have that from the data it shows that White has a slight advantage over Black.
 
 
-### Challenge 2 - Write a function that computes the player point rating (1 point for wins, 0.5 points for draws, 0 points for defeats). How are point ratings distributed? Why?
+### Challenge 2
+#### Write a function that computes the player point rating (1 point for wins, 0.5 points for draws, 0 points for defeats). How are point ratings distributed? Why?
 
 ```{r}
 # Compute the player rating of a player, given its id
@@ -204,7 +206,8 @@ ggplot(games_played, aes(x = games)) +
 
 Most of the players have not played many games, and that reflects also on the points distribution.
 
-### Challenge 3 - An interesting property of Elo's ratings is that the sum of all player ratings is always 0. Formally show this property. (Hint: use the fact that $s_{i,j} + s_{j,i}=1$ and $\mu_{i,j} + \mu_{j,i} =1$)
+### Challenge 3
+#### An interesting property of Elo's ratings is that the sum of all player ratings is always 0. Formally show this property. (Hint: use the fact that $s_{i,j} + s_{j,i}=1$ and $\mu_{i,j} + \mu_{j,i} =1$)
 
 **Proof.** All players start with a rating of 0, so initially the sum of all ratings is obviously 0. Consider then a game between players $i$ and $j$: only their two ratings will change after the game, and the sum will change by
 
@@ -216,7 +219,8 @@ $$
 Hence every game leaves the total sum unchanged, and the sum of all ratings is always 0.
 
 
-### Challenge 4 - Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Observe its distribution: why is different from the point distribution?  Verify the 0-sum property for Elo's ratings
+### Challenge 4
+#### Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Observe its distribution: why is different from the point distribution?  Verify the 0-sum property for Elo's ratings
 
 It's not possible to write a function that computes the Elo of a single player, as I did with the points rating before, since Elo computation needs the current Elo of both players for every single match. So I will write a function that computes it for all the players, game by game, in chronological order.
 ```{r}
@@ -277,7 +281,8 @@ all.equal(sum(elo$elo), 0)
 The sum is not exactly 0, but a really small number (7.638334e-13). This is due to floating-point rounding errors accumulated over 65,053 updates. Using all.equal to check for the equality returns TRUE, since it allows for a very small tolerance.
 
 
-### Challenge 5 - Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
+### Challenge 5
+#### Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
 
 First thing, we create a table containing both ratings for every player, and we visualize the data.
 ```{r}
@@ -318,7 +323,8 @@ tibble(
 There is only one player in both top 10 rankings. The number of common players increases with k, but the percentage stays far from 100%.
 
 
-### Challenge 6 - Test if the number of played games has an effect on the Elo and point player ratings
+### Challenge 6
+#### Test if the number of played games has an effect on the Elo and point player ratings
 
 ```{r}
 # We add the number of games played to the ratings table

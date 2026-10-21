@@ -287,9 +287,11 @@ description.</p>
 games on record, with 7301 distinct non-consecutive player ids, since
 the possible ids range from 1 to 8631.</p>
 </div>
-<div id="challenge-1---has-the-white-an-advantage-over-the-black-that-is-is-there-a-first-mover-advantage" class="section level3">
-<h3>Challenge 1 - Has the White an advantage over the Black, that is, is
-there a first-mover advantage?</h3>
+<div id="challenge-1" class="section level3">
+<h3>Challenge 1</h3>
+<div id="has-the-white-an-advantage-over-the-black-that-is-is-there-a-first-mover-advantage" class="section level4">
+<h4>Has the White an advantage over the Black, that is, is there a
+first-mover advantage?</h4>
 <p>Intuitively, starting first White should have an advantage over
 Black, but we want to empirically show it.</p>
 <p>The idea is that, if color wouldn’t count, White and Black should
@@ -315,10 +317,13 @@ the Black.</p>
 <p>Then we have that from the data it shows that White has a slight
 advantage over Black.</p>
 </div>
-<div id="challenge-2---write-a-function-that-computes-the-player-point-rating-1-point-for-wins-0.5-points-for-draws-0-points-for-defeats.-how-are-point-ratings-distributed-why" class="section level3">
-<h3>Challenge 2 - Write a function that computes the player point rating
-(1 point for wins, 0.5 points for draws, 0 points for defeats). How are
-point ratings distributed? Why?</h3>
+</div>
+<div id="challenge-2" class="section level3">
+<h3>Challenge 2</h3>
+<div id="write-a-function-that-computes-the-player-point-rating-1-point-for-wins-0.5-points-for-draws-0-points-for-defeats.-how-are-point-ratings-distributed-why" class="section level4">
+<h4>Write a function that computes the player point rating (1 point for
+wins, 0.5 points for draws, 0 points for defeats). How are point ratings
+distributed? Why?</h4>
 <div class="sourceCode" id="cb18"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" tabindex="-1"></a><span class="co"># Compute the player rating of a player, given its id</span></span>
 <span id="cb18-2"><a href="#cb18-2" tabindex="-1"></a>player_points <span class="ot">&lt;-</span> <span class="cf">function</span>(id, data) {</span>
 <span id="cb18-3"><a href="#cb18-3" tabindex="-1"></a>  <span class="co"># Games played as White: the player gets &quot;Score&quot; points</span></span>
@@ -373,12 +378,14 @@ played games looks really similar to the one for the point rating:</p>
 <p>Most of the players have not played many games, and that reflects
 also on the points distribution.</p>
 </div>
-<div id="challenge-3---an-interesting-property-of-elos-ratings-is-that-the-sum-of-all-player-ratings-is-always-0.-formally-show-this-property.-hint-use-the-fact-that-s_ij-s_ji1-and-mu_ij-mu_ji-1" class="section level3">
-<h3>Challenge 3 - An interesting property of Elo’s ratings is that the
-sum of all player ratings is always 0. Formally show this property.
-(Hint: use the fact that <span class="math inline">\(s_{i,j} +
-s_{j,i}=1\)</span> and <span class="math inline">\(\mu_{i,j} + \mu_{j,i}
-=1\)</span>)</h3>
+</div>
+<div id="challenge-3" class="section level3">
+<h3>Challenge 3</h3>
+<div id="an-interesting-property-of-elos-ratings-is-that-the-sum-of-all-player-ratings-is-always-0.-formally-show-this-property.-hint-use-the-fact-that-s_ij-s_ji1-and-mu_ij-mu_ji-1" class="section level4">
+<h4>An interesting property of Elo’s ratings is that the sum of all
+player ratings is always 0. Formally show this property. (Hint: use the
+fact that <span class="math inline">\(s_{i,j} + s_{j,i}=1\)</span> and
+<span class="math inline">\(\mu_{i,j} + \mu_{j,i} =1\)</span>)</h4>
 <p><strong>Proof.</strong> All players start with a rating of 0, so
 initially the sum of all ratings is obviously 0. Consider then a game
 between players <span class="math inline">\(i\)</span> and <span class="math inline">\(j\)</span>: only their two ratings will change
@@ -390,12 +397,14 @@ after the game, and the sum will change by</p>
 \]</span> Hence every game leaves the total sum unchanged, and the sum
 of all ratings is always 0.</p>
 </div>
-<div id="challenge-4---write-a-function-that-computes-the-player-elo-rating-set-zeta-400-and-kappa-25-hint-take-advantage-of-the-0-sum-property-to-optimize-the-code.-observe-its-distribution-why-is-different-from-the-point-distribution-verify-the-0-sum-property-for-elos-ratings" class="section level3">
-<h3>Challenge 4 - Write a function that computes the player Elo rating
-(set <span class="math inline">\(\zeta = 400\)</span> and <span class="math inline">\(\kappa = 25\)</span>) (Hint: take advantage of the
+</div>
+<div id="challenge-4" class="section level3">
+<h3>Challenge 4</h3>
+<div id="write-a-function-that-computes-the-player-elo-rating-set-zeta-400-and-kappa-25-hint-take-advantage-of-the-0-sum-property-to-optimize-the-code.-observe-its-distribution-why-is-different-from-the-point-distribution-verify-the-0-sum-property-for-elos-ratings" class="section level4">
+<h4>Write a function that computes the player Elo rating (set <span class="math inline">\(\zeta = 400\)</span> and <span class="math inline">\(\kappa = 25\)</span>) (Hint: take advantage of the
 0-sum property to optimize the code). Observe its distribution: why is
 different from the point distribution? Verify the 0-sum property for
-Elo’s ratings</h3>
+Elo’s ratings</h4>
 <p>It’s not possible to write a function that computes the Elo of a
 single player, as I did with the points rating before, since Elo
 computation needs the current Elo of both players for every single
@@ -467,9 +476,12 @@ This is due to floating-point rounding errors accumulated over 65,053
 updates. Using all.equal to check for the equality returns TRUE, since
 it allows for a very small tolerance.</p>
 </div>
-<div id="challenge-5---are-point-and-elo-ratings-correlated-are-top-elo-players-overlapping-with-top-point-players" class="section level3">
-<h3>Challenge 5 - Are point and Elo ratings correlated? Are top Elo
-players overlapping with top point players?</h3>
+</div>
+<div id="challenge-5" class="section level3">
+<h3>Challenge 5</h3>
+<div id="are-point-and-elo-ratings-correlated-are-top-elo-players-overlapping-with-top-point-players" class="section level4">
+<h4>Are point and Elo ratings correlated? Are top Elo players
+overlapping with top point players?</h4>
 <p>First thing, we create a table containing both ratings for every
 player, and we visualize the data.</p>
 <div class="sourceCode" id="cb35"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" tabindex="-1"></a>ratings <span class="ot">&lt;-</span> <span class="fu">inner_join</span>(point_rating, elo, <span class="at">by =</span> <span class="st">&quot;player&quot;</span>)</span>
@@ -524,9 +536,12 @@ players.</p>
 common players increases with k, but the percentage stays far from
 100%.</p>
 </div>
-<div id="challenge-6---test-if-the-number-of-played-games-has-an-effect-on-the-elo-and-point-player-ratings" class="section level3">
-<h3>Challenge 6 - Test if the number of played games has an effect on
-the Elo and point player ratings</h3>
+</div>
+<div id="challenge-6" class="section level3">
+<h3>Challenge 6</h3>
+<div id="test-if-the-number-of-played-games-has-an-effect-on-the-elo-and-point-player-ratings" class="section level4">
+<h4>Test if the number of played games has an effect on the Elo and
+point player ratings</h4>
 <div class="sourceCode" id="cb39"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" tabindex="-1"></a><span class="co"># We add the number of games played to the ratings table</span></span>
 <span id="cb39-2"><a href="#cb39-2" tabindex="-1"></a>ratings <span class="ot">&lt;-</span> ratings <span class="sc">|&gt;</span></span>
 <span id="cb39-3"><a href="#cb39-3" tabindex="-1"></a>  <span class="fu">inner_join</span>(games_played, <span class="at">by =</span> <span class="st">&quot;player&quot;</span>)</span>
@@ -563,6 +578,7 @@ strong for points rating, weak for Elo, and concentrated on the most
 active players. We can then conclude that Elo rating is a a more
 appropriate measure of relative strength of a chess player, since points
 rating is highly influenced by the number of played games.</p>
+</div>
 </div>
 </div>
 </div><!-- /.entry-content -->
