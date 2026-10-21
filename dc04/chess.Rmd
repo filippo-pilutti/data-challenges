@@ -110,7 +110,7 @@ count(chess, Score)
 # A player should not play against himself
 sum(chess$White == chess$Black)
 ```
-The data is clean, meaning no missing values and coherent with the subject.
+The data is clean, meaning no missing values and consistent with the description.
 
 ```{r}
 # All distinct player ids, appearing as White or as Black
@@ -180,7 +180,7 @@ summary(point_rating$points)
 ```{r echo=FALSE}
 # Histogram
 ggplot(point_rating, aes(x = points)) +
-  geom_histogram(binwidth = 5, fill = "steelblue") + 
+  geom_histogram(binwidth = 5, boundary = 0, fill = "steelblue") + 
   labs(title = "Point ratings distribution",
        x = "Total points",
        y = "Number of players") +
@@ -188,14 +188,14 @@ ggplot(point_rating, aes(x = points)) +
 ```
 
 
-From the plot, it's easy to see that the distribution is highly asymmetrical: median is 3, average is 8.9, and most of the players have scored less than 5 points. The main reason is because the point rating is a sum, meaning that it increases with the number of played games, reproducing its distribution. We can see that the histogram of total played games looks really similar to the one for the point rating:
+From the plot, it's easy to see that the distribution is highly asymmetrical: median is 3, average is 8.9, and most of the players have scored less than 5 points. The main reason is that the point rating is a sum, meaning that it increases with the number of played games, reproducing its distribution. We can see that the histogram of total played games looks really similar to the one for the point rating:
 
 ```{r echo=FALSE}
 games_played <- tibble(player = c(chess$White, chess$Black)) |>
   count(player, name = "games")
 
 ggplot(games_played, aes(x = games)) + 
-  geom_histogram(binwidth = 5, fill = "steelblue1") +
+  geom_histogram(binwidth = 5, boundary = 0, fill = "steelblue1") +
   labs(title = "Total played games distribution",
        x = "Played games",
        y = "Number of players") +
@@ -218,12 +218,12 @@ Hence every game leaves the total sum unchanged, and the sum of all ratings is a
 
 ### Challenge 4 - Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Observe its distribution: why is different from the point distribution?  Verify the 0-sum property for Elo's ratings
 
-It's not possible to write a function the computes the ELO of a single player, as I did with the points rating before, since ELO computation needs the current ELO of both players for every single match. So I will write a function that computes it for all the players, game by game, in chronological order.
+It's not possible to write a function that computes the Elo of a single player, as I did with the points rating before, since Elo computation needs the current Elo of both players for every single match. So I will write a function that computes it for all the players, game by game, in chronological order.
 ```{r}
-# ELO function
+# Elo function
 elo_rating <- function(data, zeta = 400, kappa = 25) {
   
-  # Create a vector for each possible id, all starting at rating 0
+  # Create a vector with one entry per possible id
   rating <- rep(0, max(data$White, data$Black))
   
   for (k in 1:nrow(data)) {
@@ -254,16 +254,17 @@ summary(elo$elo)
 ```{r echo=FALSE}
 ggplot(elo, aes(x = elo)) +
   geom_histogram(binwidth = 5, fill = "steelblue4") +
-  labs(title = "ELO rating distribution",
-       x = "ELO",
+  labs(title = "Elo rating distribution",
+       x = "Elo",
        y = "Number of players") + 
   theme_minimal()
 ```
 
-Differently from the points distribution, here we have a peak on value 0, and two tails toward negative values and high positive values. This is because ELO is not additive: it does not accumulate while playing more. A player gains ELO points only by behaving better than predicted and loses them by doing worse.
+Unlike the points distribution, here we have a peak on value 0, and two tails toward negative values and high positive values. This is because Elo is not cumulative: it does not accumulate while playing more. A player gains Elo points only by behaving better than predicted and loses them by doing worse.
 
 Main characteristics:
-- There are negative values e and the mean is exactly 0
+
+- There are negative values and the mean is exactly 0
 - There is a peak at around 0: many players have very few games on record, and every game barely moves their rating.
 - The tails are composed by players who played a lot of games. Only with lots of games, the rating has the time to significantly move away from 0.
 
@@ -273,7 +274,7 @@ sum(elo$elo)
 all.equal(sum(elo$elo), 0)
 ```
 
-The sum is not exactly 0, but a really small number (7.638334e-13). This is due to very small rounding errors on big number of data rows. Using all.equal to check for the equality returns TRUE, since it allows for a very small tolerance.
+The sum is not exactly 0, but a really small number (7.638334e-13). This is due to floating-point rounding errors accumulated over 65,053 updates. Using all.equal to check for the equality returns TRUE, since it allows for a very small tolerance.
 
 
 ### Challenge 5 - Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
@@ -286,11 +287,66 @@ ratings
 
 ```{r echo=FALSE}
 ggplot(ratings, aes(x = points, y = elo)) +
-  geom_point(alpha = 0.5) +
-  labs(title = "Point rating vs. ELO rating",
+  geom_point(alpha = 0.4) +
+  labs(title = "Point rating vs. Elo rating",
        x = "Points",
-       y = "ELO") +
+       y = "Elo") +
   theme_minimal()
 ```
 
+From the scatterplot, we can see that there is a positive correlation, but an imperfect one. Players with high points rating usually have a high Elo, but for example, players with the highest Elos are not those with the most points. Close to the origin, the Elo rating of players with few points ranges between -150 and +100, so we see that for the same amount of points, Elo ratings can vary considerably.
 
+Let's quantify the overlap between top Elo players and top points players.
+```{r}
+# Function to measure the number of players in common between the top k players
+# of the two rankings.
+top_overlap <- function(k) {
+  top_points <- head(point_rating$player, k)
+  top_elo <- head(elo$player, k)
+  length(intersect(top_points, top_elo))
+}
+
+# Check the overlap in top 10, 50, 100, 500, 1000
+k <- c(10, 50, 100, 500, 1000)
+tibble(
+  k = k,
+  overlap = sapply(k, top_overlap),
+  percentage = (overlap / k) * 100
+)
+```
+
+There is only one player in both top 10 rankings. The number of common players increases with k, but the percentage stays far from 100%.
+
+
+### Challenge 6 - Test if the number of played games has an effect on the Elo and point player ratings
+
+```{r}
+# We add the number of games played to the ratings table
+ratings <- ratings |>
+  inner_join(games_played, by = "player")
+ratings
+```
+
+Now we have a table that for each player it shows both ratings and how many games they played. Let's then visualize how the two ratings correlate to number of played games.
+
+```{r echo=FALSE}
+# Games vs points
+ggplot(ratings, aes(x = games, y = points)) + 
+  geom_point(alpha = 0.3) +
+  labs(title = "Games played vs point rating", x = "Games played", y = "Points") +
+  theme_minimal()
+
+# Games vs elo
+ggplot(ratings, aes(x = games, y = elo)) +
+  geom_point(alpha = 0.3) +
+  labs(title = "Games played vs Elo", x = "Games played", y = "Elo") +
+  theme_minimal()
+```
+
+We have two very different plots.
+
+In the points plot, the players are almost on a straight line. More games means more points, almost without exceptions.
+
+The Elo plot looks very similar to the Points vs Elo plot, that is because we have just seen that there is basically a linear correlation between games and points. We see that who played less, has a sparse Elo above and below 0, while who played more (more than 100 games), is almost always above 0.
+
+In conclusion, we can see that the number of played games has an effect on both ratings, but with a big difference in intensity: really strong for points rating, weak for Elo, and concentrated on the most active players. We can then conclude that Elo rating is a a more appropriate measure of relative strength of a chess player, since points rating is highly influenced by the number of played games.
