@@ -1,0 +1,242 @@
+---
+title: "Concentration of S&P 500 index"
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE, cache=TRUE, message=FALSE}
+knitr::opts_chunk$set(cache = TRUE, echo = TRUE, message = FALSE)
+```
+
+In this data challenge we study how concentrated the S&P 500 is among its constituent companies. 
+
+1. The S&P 500 (Standard & Poor's 500) is a stock market index that tracks the performance of 500 of the largest publicly traded companies in the United States.
+2. It covers roughly 80% of the total value of the U.S. stock market.
+3. It is a market-capitalization-weighted index. Larger companies have a much bigger impact on its value than smaller components
+
+
+We will use:
+
+```{r message=FALSE}
+library(tidyverse)
+library(tidyquant)
+library(ineq)
+```
+
+The three packages have different roles:
+
+```text
+tidyquant    retrieve the S&P 500 constituents and weights
+tidyverse    manipulate and visualize the data
+ineq         calculate the Lorenz curve and Gini coefficient
+```
+
+Our main questions are:
+
+1. How unequal are the company weights in the S&P 500?
+2. How much of the index is represented by its largest companies?
+3. What does the Lorenz curve tell us about concentration?
+4. What is the Gini coefficient of the S&P 500 weights?
+
+
+
+### Data loading
+
+The data was download on 29.10.2026.
+
+```{r eval=FALSE}
+sp500 <- tq_index("SP500")
+write_csv(sp500, "data/sp500.csv")
+```
+
+```{r}
+sp500 <- read_csv("data/sp500.csv")
+sp500
+```
+
+```{r}
+# Sanity checks
+
+# Number of rows: we expect 500
+nrow(sp500)
+
+# Number of distinct symbols and company names
+n_distinct(sp500$symbol)
+n_distinct(sp500$company)
+
+# Check for missing weights
+sum(is.na(sp500$weight))
+
+# The weights should sum up to 1
+sum(sp500$weight)
+```
+With the first checks, we find out that we have 505 distinct companies in the index, even though we were expecting 500. This is because some companies have more than one share class (for example ALPHABET INC CL A with share GOOGL and ALPHABET INC CL C with share GOOG).
+We don't have any NA value for the weights column, and the sum of all the different weights adds up to 1, so it means that the weights are fractions.
+
+
+### 1. How unequal are the company weights in the S&P 500?
+
+```{r}
+# Basic summary of the weights
+summary(sp500$weight)
+```
+
+Median is almost a third of the mean: this means that more than half of the companies weight way less that the mean. The distribution is asymmetrical toward the right side: a few very large values increase the mean.
+
+The max value is 0.079. This means that the 7.9% of the index is held by a single company.
+
+The minimum value is very close to 0, meaning that there is at least a company that weighs next to nothing in the index.
+
+```{r}
+# The 10 smallest weights in the index
+sp500 |>
+  arrange(weight)|>
+  select(symbol, company, weight) |>
+  head(10)
+```
+
+The row 2602335D CONTRA HOLOGIC INCORPO is not an actual constituent of the index: its symbol is not a valid ticker and “contra” entries are temporary accounting placeholders that the ETF holdings file uses for corporate actions, so we can safely remove it from the data; its weight is practically zero, so removing it does not change the total, while keeping it would add a fictitious company and artificially inflate the inequality measures.
+
+```{r}
+# Keep only real companies, filtering out entries with invalid tickers
+sp500 <- sp500 |>
+  filter(!str_detect(symbol, "[0-9]"))
+nrow(sp500)
+```
+
+
+```{r}
+# The 10 largest weights
+sp500 |>
+  arrange(-weight) |>
+  select(symbol, company, weight) |>
+  head(10)
+```
+
+```{r}
+# Companies listed with more than one share class.
+# Share classes usually appear in the name as "CL A", "CL B", "CLASS A", etc.
+sp500 |>
+  filter(str_detect(str_to_upper(company), "CL A|CL B|CL C|CLASS")) |>
+  select(symbol, company, weight) |>
+  arrange(company)
+```
+
+Companies with more than one share class (e.g. Alphabet with GOOGL and GOOG) are kept as separate entries, as they appear in the index; our unit of analysis is therefore the index constituent rather than the issuing company.
+
+We take as reference value for the weight $1/n$, where n is the number of companies in the index. This is the weight that each constituent would have if the index was completely balanced. We then confront the real weights with this value.
+
+```{r}
+sp500 |>
+  summarise(
+    n_constituents = n(),
+    reference_weight = 1 / n_constituents,
+    share_below_equal = mean(weight < reference_weight),
+    max_over_equal = max(weight) / reference_weight,
+    max_over_min = max(weight) / min(weight)
+  )
+```
+
+- share_below_equal: fraction of constituents that weighs less than the reference weight.
+- max_over_equal: how much the largest company weighs more than the reference weight.
+- max_over_min: how much the largest company weighs more than the smallest company.
+
+```{r}
+# Distribution of the weights
+ggplot(sp500, aes(x = weight)) +
+  geom_histogram(bins = 40, fill = "steelblue", color = "white") +
+  geom_vline(xintercept = 1 / nrow(sp500), linetype = "dashed", color = "red") +
+  scale_x_log10(labels = scales::label_percent()) +
+  labs(
+    title = "Distribution of S&P 500 companies weights",
+    subtitle = "Dashed line: reference weight for each constituent in a perfectly equal index",
+    x = "Index weight",
+    y = "Number of constituents"
+  ) +
+  theme_minimal()
+```
+
+
+The weights are highly unequal. In a perfectly equal index each of the 504 constituents would weigh 1/504 ≈ 0.198%, but 82.5% of the constituents weigh less than this reference value. The largest constituent (NVIDIA, 7.9%) weighs about 40 times the equal weight and about 1300 times the smallest one. On a logarithmic scale most weights lie between 0.02% and 0.2%, while a long right tail contains a handful of constituents above 1%. Note that the histogram counts constituents, not weight: the few bars on the right look small, but they represent a large share of the index, as we show in the next section.
+
+
+
+### 2. How much of the index is represented by its largest companies?
+
+
+We compute the cumulative weight for the k largest constituents. Cumulative weight in position k is index share held by the top k companies.
+
+```{r}
+# Cumulative weight for the top k constituents
+sp500_ranked <- sp500 |>
+  arrange(-weight) |>
+  mutate(
+    rank = row_number(),
+    cumulative_weight = cumsum(weight)
+  )
+
+sp500_ranked |>
+  select(rank, symbol, company, weight, cumulative_weight) |>
+  head(20)
+```
+
+```{r}
+# Share of the index held by top k constituents, compared with the share they
+# would hold in an equal index
+sp500_ranked|>
+  filter(rank %in% c(1, 5, 10, 20, 50, 100, 250)) |>
+  transmute(
+    top_k = rank,
+    share_of_index = cumulative_weight,
+    share_if_equal = rank / nrow(sp500_ranked)
+  )
+```
+
+
+We can see that the index is dominated by a small group of very large constituents. The top 5 constituents, only 1% of the total, account for 28% of the index, and the top 10 for 38%, about 19 times the share they would hold in an equal index. Just 4 constituents are enough to exceed a quarter of the index, and the top 20 (4% of the constituents) hold almost half of it (49.2%). The top 100, 20% of the constituents, represent 75.4% of the index, close to the well-known 80/20 rule. Conversely, the bottom half of the constituents (254 stocks) accounts for only 8.6% of the index. 
+
+We also see that in the top 10, all constituents are technology companies, so this concentration is also a sector concentration.
+
+
+
+### 3. What does the Lorenz curve tell us about concentration?
+
+```{r}
+# Lorenz curve of the companies weights
+lorenz <- Lc(sp500$weight)
+lorenz_df <- tibble(p = lorenz$p, L = lorenz$L)
+```
+
+```{r}
+ggplot(lorenz_df, aes(x = p, y = L)) + 
+  geom_ribbon(aes(ymin = L, ymax = p), fill = "steelblue", alpha = 0.2) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_line(aes(y = p), linetype = "dashed") +
+  scale_x_continuous(labels = scales::label_percent()) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  coord_equal() +
+  labs(
+    title = "Lorenz curve of S&P 500 companies weights",
+    subtitle = "Dashed line: perfect equality. Shaded area: distance from equality.",
+    x = "Cumulative share of constituents (from smallest to largest)",
+    y = "Cumulative share of index weight"
+  ) +
+  theme_minimal()
+```
+
+The Lorenz curve results far below the line of perfect equality. It grows very slowly for most of the constituents: the smallest 50% of the companies hold less than 10% of the index, and the smallest 75% only about 20%. The curve rises steeply only at the very end, where the largest companies, mostly in the tech sector, account for about half of the index. The shaded area, which measures the distance from the equality, covers a large part of the triangle beneath the diagonal, indicating a strongly concentrated distribution.
+
+
+### 4. What is the Gini coefficient of the S&P 500 weights?
+
+```{r}
+# Gini coefficient of the weights
+gini <- Gini(sp500$weight)
+gini
+```
+
+The Gini coefficient of the constituents weights is 0.714, on a scale from 0 (perfect equality), to 1 (all the weight held by a single constituent). This is a very high value, confirming that the S&P 500 is a highly concentrated index.

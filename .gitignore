@@ -6,3 +6,6 @@
 .quarto
 *.csv
 rsconnect
+data
+*_cache
+*_files
