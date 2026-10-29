@@ -1,0 +1,297 @@
+---
+title: "Stablecoins — compare USDC, USDT and DAI transaction sizes and volumes"
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE, cache=TRUE, message=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+```
+
+We want to compare three major Ethereum stablecoins:
+
+-  USDC (smart contract address: 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48)
+-  USDT (smart contract address: 0xdac17f958d2ee523a2206206994597c13d831ec7)
+-  DAI (smart contract address: 0x6b175474e89094c44da98b954eedeac495271d0f)
+
+
+We will investigate two questions:
+
+1. How do their transfer sizes differ?
+2. How much transfer volume does each stablecoin generate?
+
+Our workflow is:
+
+```text
+Ethereum
+   ↓
+Etherscan
+   ↓
+ERC-20 transfer events
+   ↓
+R / tidyverse
+   ↓
+transfer sizes + transfer volumes
+```
+
+We use Etherscan to retrieve the already indexed ERC-20 transfer events. Etherscan’s `tokentx` endpoint can be filtered directly by token contract, so we do not need to download unrelated ERC-20 transfers first. 
+
+We use the term transfer rather than transaction throughout the lab: one Ethereum transaction can generate several ERC-20 transfer events.
+
+
+### Data loading
+
+```{r message=FALSE}
+# Libs and setup
+library(tidyverse)
+library(httr2)
+
+api_key <- Sys.getenv("ETHERSCAN_API_KEY")
+
+usdc_address <- "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+usdt_address <- "0xdac17f958d2ee523a2206206994597c13d831ec7"
+dai_address <- "0x6b175474e89094c44da98b954eedeac495271d0f"
+```
+
+For each stablecoin we download the 100,000 most recent transfers before a common end point (28 October 2026, 21:00 UTC). The samples have equal size, so the transfer size distributions are estimated with the same precision. Since the three stablecoins are pegged to the US dollar, we treat one token as one dollar. Volume only makes sense per unit of time, so we express it per hour and per day, dividing by the time span each sample covers.
+
+Etherscan selects transfers by block number, not by date, so we first convert the end point into a block number.
+
+```{r}
+# Return the Ethereum block closest to a given time.
+# closest = "after"  -> first block mined at or after `time`
+# closest = "before" -> last block mined at or before `time`
+get_block_by_time <- function(time, closest) {
+  response <-
+    request("https://api.etherscan.io/v2/api") |>
+    req_url_query(
+      chainid = 1,
+      module = "block",
+      action = "getblocknobytime",
+      timestamp = as.numeric(time),
+      closest = closest,
+      apikey = api_key
+    ) |>
+    req_perform() |>
+    resp_body_json(simplifyVector = TRUE)
+
+  as.numeric(response$result)
+}
+```
+
+
+```{r}
+# Common end point for the three samples (28 October 2026, 21:00 UTC),
+# fixed in the past for reproducibility
+end_time  <- ymd_hms("2026-10-28 21:00:00", tz = "UTC")
+end_block <- get_block_by_time(end_time, closest = "before")
+end_block
+```
+
+
+
+Etherscan returns at most 1,000 records per request, so the download uses pagination: we move backwards in time in batches of 1,000 transfers. The oldest block of each batch may be cut by the limit, so we drop it and download it entirely in the next request; this way no transfer is lost or counted twice. The download chunk is not evaluated when knitting: the data are downloaded once and saved to `data/transfers.csv`.
+
+```{r eval=FALSE}
+# Download the n most recent transfers of a token, up to end_block.
+# Etherscan returns at most 1,000 records per request, so we move backwards
+# in batches, ending each request at the oldest block of the previous one.
+download_transfers <- function(contract_address, end_block, n = 100000) {
+  batches <- list()
+  current_end <- end_block
+  n_downloaded <- 0
+
+  while (n_downloaded < n) {
+    response <-
+      request("https://api.etherscan.io/v2/api") |>
+      req_url_query(
+        chainid = 1,
+        module = "account",
+        action = "tokentx",
+        contractaddress = contract_address,
+        startblock = 0,
+        endblock = current_end,
+        page = 1,
+        offset = 1000,
+        sort = "desc",      # most recent first: we move backwards in time
+        apikey = api_key
+      ) |>
+      req_perform() |>
+      resp_body_json(simplifyVector = TRUE)
+
+    batch <-
+      as_tibble(response$result) |>
+      select(blockNumber, timeStamp, value, tokenSymbol, tokenDecimal)
+
+    # The oldest block of the batch may be cut by the 1,000-record limit:
+    # drop it here and download it entirely in the next request
+    oldest_block <- min(as.numeric(batch$blockNumber))
+    batches[[length(batches) + 1]] <- filter(batch, as.numeric(blockNumber) > oldest_block)
+    current_end <- oldest_block
+
+    n_downloaded <- n_downloaded + nrow(batches[[length(batches)]])
+    message("Downloaded ", n_downloaded, " transfers")
+
+    # Pause between calls to stay below the free tier rate limit
+    Sys.sleep(0.4)
+  }
+
+  # Batches are in descending order: keep exactly the n most recent transfers
+  bind_rows(batches) |>
+    slice_head(n = n)
+}
+
+usdc <- download_transfers(usdc_address, end_block)
+usdt <- download_transfers(usdt_address, end_block)
+dai  <- download_transfers(dai_address, end_block)
+
+# One tidy table: the token is identified by tokenSymbol
+transfers <- bind_rows(usdc, usdt, dai)
+
+write_csv(transfers, "data/transfers.csv")
+```
+
+We read every column of the CSV as text and convert it explicitly to the proper R type.
+
+```{r}
+transfers <- read_csv(
+  "data/transfers.csv",
+  col_types = cols(.default = col_character())
+)
+
+transfers_clean <- transfers |>
+  mutate(
+    token = tokenSymbol,
+    block = as.numeric(blockNumber),
+    time = as_datetime(as.numeric(timeStamp)),
+    # Raw integer value -> token amount (6 decimals for USDC and USDT, 18 for DAI)
+    amount = as.numeric(value) / 10^as.numeric(tokenDecimal)
+  ) |>
+  select(token, block, time, amount)
+
+glimpse(transfers_clean)
+```
+
+```{r}
+# Time span covered by each sample (needed to express volume per hour)
+transfers_clean |>
+  group_by(token) |>
+  summarise(
+    n_transfers = n(),
+    first_time = min(time),
+    last_time = max(time),
+    hours_covered = as.numeric(difftime(last_time, first_time, units = "hours"))
+  )
+```
+
+Each sample contains 100,000 transfers. Since USDC and USDT are far more active, their samples cover only about 3.5 hours, while the DAI sample covers more than 6 days.
+
+### 1. How do their transfer sizes differ?
+
+Transfer amounts have a very long right tail: many small transfers and a few huge ones. We therefore describe their distribution with quantiles, which are robust, and show the mean only for comparison.
+
+```{r}
+transfers_clean |>
+  group_by(token) |>
+  summarise(
+    p10 = quantile(amount, 0.10),
+    p25 = quantile(amount, 0.25),
+    median = median(amount),
+    p75 = quantile(amount, 0.75),
+    p90 = quantile(amount, 0.90),
+    p99 = quantile(amount, 0.99),
+    mean = mean(amount),
+    n_zero = sum(amount == 0)
+  )
+```
+
+Between 5% and 7% of the transfers of each stablecoin have amount equal to 0: 7.15% for USDT, 5.91% for USDC and 4.82% for DAI. These transfers do not move any value and can be described as spam. A plausible explanation is address poisoning: the attacker generates an address similar to one used by the victim and sends a 0-token transfer between them, hoping that the victim later copies the attacker's address from the transaction history by mistake.
+
+```{r}
+# Second view: only transfers that actually move value (amount > 0)
+nonzero_transfers <-
+  transfers_clean |>
+  filter(amount > 0)
+
+nonzero_transfers |>
+  group_by(token) |>
+  summarise(
+    n = n(),
+    p10 = quantile(amount, 0.10),
+    p25 = quantile(amount, 0.25),
+    median = median(amount),
+    p75 = quantile(amount, 0.75),
+    p90 = quantile(amount, 0.90),
+    p99 = quantile(amount, 0.99),
+    mean = mean(amount)
+  )
+```
+
+```{r}
+nonzero_transfers |>
+  ggplot(aes(x = amount, color = token)) +
+  geom_density(linewidth = 1) +
+  scale_x_log10(labels = scales::label_log(), breaks = 10^seq(-14, 8, by = 2)) +
+  labs(
+    title = "Distribution of transfer sizes",
+    x = "Transfer amount",
+    y = "Density",
+    color = "Stablecoin"
+  ) +
+  theme_minimal()
+```
+
+In this second view and in the plot we exclude zero-amount transfers: they do not move any value, and they cannot be shown on a log scale. All three stablecoins show two separate peaks: a narrow spike at 0.0001 tokens, much higher for USDT and USDC than for DAI, and a main peak between 100 and 1,000 tokens, corresponding to ordinary payments. Such a sharp concentration on a single tiny amount suggests automated dust transfers, likely address poisoning as well, rather than genuine payments.
+
+The quantiles show a clear and consistent ordering: DAI transfers are the largest, followed by USDC and then USDT, both at the median (about 350, 160 and 100 USD) and in the upper tail, where the differences grow (90th percentile: about 83,000, 18,000 and 8,000 USD). DAI is also the only stablecoin with a clear second peak, around 100,000 USD.
+
+### 2. How much transfer volume does each stablecoin generate?
+
+
+Transfer volume is the sum of the amounts transferred. We express it per unit of time: the hourly volume is the total volume of each sample divided by the hours it covers, and the daily volume is the hourly volume times 24. We also report the number of transfers per hour, to see whether volume differences come from transfer frequency or transfer size. For USDT and USDC the samples cover only a few hours, so their daily volume will be an estimate; for DAI it is an average over several days.
+
+
+```{r}
+volume <-
+  transfers_clean |>
+  group_by(token) |>
+  summarise(
+    n_transfers = n(),
+    hours_covered = as.numeric(difftime(max(time), min(time), units = "hours")),
+    total_volume = sum(amount)
+  ) |>
+  mutate(
+    transfers_per_hour = n_transfers / hours_covered,
+    hourly_volume = total_volume / hours_covered,
+    daily_volume = hourly_volume * 24
+  )
+
+print(volume, width = Inf)
+```
+
+```{r}
+volume |>
+  ggplot(aes(x = token, y = daily_volume, fill = token)) +
+  geom_col(show.legend = FALSE) +
+  scale_y_continuous(labels = scales::label_dollar(scale = 1e-9, suffix = "B", accuracy = 1)) +
+  labs(
+    title = "Estimated daily transfer volume",
+    x = "Stablecoin",
+    y = "Daily volume (billions of USD)"
+  ) +
+  theme_minimal()
+```
+
+
+USDC generates the largest volume, about 46 billion USD per day, followed by USDT (about 25 billion) and DAI (about 6 billion). Splitting volume into frequency and size explains this ranking. USDC and USDT have almost the same number of transfers per hour (about 27,500 and 29,200), but the average USDC transfer is about twice as large (about 70,000 USD against 35,000), so USDC moves almost twice the volume. DAI has about 45 times fewer transfers than USDT: its average transfer is about ten times larger (about 370,000 USD), but this is not enough to compensate.
+
+These figures should be read with caution. The USDC and USDT samples cover only about 3.5 hours, during the US afternoon, so their daily volume is an estimate that may overestimate a typical day, while the DAI figure is an average over about 6 days. Moreover, volume is driven by a few very large transfers, including mints and burns.
+
+
+### Conclusions
+
+DAI transfers are the largest, followed by USDC and USDT: the ordering holds at the median and becomes stronger in the upper tail, where DAI has a second peak around 100,000 USD. Part of the transfers of all three stablecoins are zero-amount or dust transfers, most likely address poisoning spam, with dust especially frequent for USDT and USDC. In terms of volume, USDC leads, followed by USDT: both are used very frequently, but USDC transfers are larger on average. DAI generates far less volume despite having the largest transfers, because it is used much less frequently.
