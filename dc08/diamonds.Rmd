@@ -1,0 +1,54 @@
+---
+title: "Diamonds quality"
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+
+library(ggplot2)
+library(modelr)
+library(dplyr)
+```
+In this data challenge we explore the qualities of diamonds and their association with price using the `ggplot2::diamonds` dataset:
+
+1. First of all, observe that low quality diamonds (with respect to cut, color and clarity) are more expensive.
+2. Using models, find an explanation and solve the apparent paradox.
+
+Recall that:
+
+* best cut is Ideal, worst is Fair
+* best color is D, worst is J
+* best clarity is IF, worst is I1
+
+
+
+### 1. First of all, observe that low quality diamonds (with respect to cut, color and clarity) are more expensive.
+
+We start by observing the data.
+```{r}
+diamonds
+levels(diamonds$cut)
+levels(diamonds$color)
+levels(diamonds$clarity)
+```
+
+
+```{r}
+# Price distribution by cut
+ggplot(diamonds, aes(cut, price)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(color, price)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(clarity, price)) +
+  geom_boxplot()
+```
+
