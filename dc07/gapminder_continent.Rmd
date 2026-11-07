@@ -1,0 +1,123 @@
+---
+title: "How life expectancy change over time for each continent?"
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+```
+
+Life expectancy for a country is the mean length of life over people of a country. Using variables life expectancy and population of a country:
+
+1.  derive a formula to compute life expectancy of a continent (a group of countries)
+2.  plot how life expectancy changed over time for each continent
+3.  do the same for the whole planet
+
+
+
+### Setup and data loading
+
+```{r}
+library(tidyverse)
+library(gapminder)
+
+glimpse(gapminder)
+```
+
+
+### 1. Derive a formula to compute life expectancy of a continent (a group of countries)
+
+Life expectancy $e_i$ of country $i$ is the mean length of life of its $p_i$ inhabitants,
+so the total number of years lived by its population is $p_i \, e_i$.
+The life expectancy of a continent $C$ is the mean length of life over all people of $C$,
+that is, the total years lived divided by the total population:
+
+$$
+e_C = \frac{\sum_{i \in C} p_i \, e_i}{\sum_{i \in C} p_i}
+$$
+
+This is the mean of country life expectancies weighted by population.
+A simple (unweighted) mean would give the same importance to small and large countries,
+while we want the mean over people, not over countries.
+
+```{r}
+# Life expectancy for a continent for each year
+# Mean of life expectancies weighted by population
+continent_life_exp <- function(df) {
+  df |>
+    group_by(year) |>
+    summarise(
+      lifeExp = weighted.mean(lifeExp, pop)
+    )
+}
+```
+
+
+### 2. Plot how life expectancy changed over time for each continent
+
+First of all, we need to build the nested data frame, grouping by continent.
+
+```{r}
+by_continent <- gapminder |>
+  group_by(continent) |>
+  nest()
+by_continent
+by_continent$data[[1]]
+```
+
+Then we can apply the function to each continent.
+
+```{r}
+by_continent <- by_continent |>
+  mutate(lifeExp = map(data, continent_life_exp))
+by_continent
+by_continent$lifeExp[[1]]
+```
+
+We can proceed to unnest the data frames, so that we can plot the life expectancies for each continent.
+
+```{r}
+exps <- unnest(by_continent, lifeExp) |>
+  select(-data)
+exps
+
+exps |>
+  ggplot(aes(year, lifeExp, color = continent)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Life expectancy by continent",
+    x = "Year",
+    y = "Life expectancy (years)",
+    color = "Continent"
+  ) +
+  theme_classic()
+```
+
+
+### 3. Do the same for the whole planet
+
+We already have the function, so we only need to apply it to the whole amount of countries. We don't need any nested data frames, we simply have to run it on the whole gapminder data set,
+and then plot the result
+
+```{r}
+world <- continent_life_exp(gapminder)
+world
+
+world |>
+  ggplot(aes(year, lifeExp)) +
+  geom_line(linewidth = 1, color = "steelblue") +
+  labs(
+    title = "Life expectancy of the world",
+    x = "Year",
+    y = "Life expectancy (years)"
+  ) +
+  theme_classic()
+```
+
+
