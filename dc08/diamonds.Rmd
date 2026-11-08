@@ -8,9 +8,9 @@ output:
     highlight: github
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, message=FALSE}
 # cache results
-knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+knitr::opts_chunk$set(cache=TRUE, message=FALSE, warning = FALSE)
 
 library(ggplot2)
 library(modelr)
@@ -39,16 +39,184 @@ levels(diamonds$color)
 levels(diamonds$clarity)
 ```
 
+We choose to visualize the data using boxplots, plotting the price against each cut, color and clarity. Boxplots show median and quartiles, allowing us to visualize the prices distribution along the different levels of each category.
 
 ```{r}
 # Price distribution by cut
 ggplot(diamonds, aes(cut, price)) +
-  geom_boxplot()
-
+  geom_boxplot() +
+  labs(title = "Price by cut")
+# Median price for each level of cut
+diamonds |>
+  group_by(cut) |>
+  summarise(n = n(), median_price = median(price))
+```
+`Cut`: the best category (Ideal) has the lowest median price, while Fair (the worst one) has the highest one
+```{r}
+# Price distribution by color
 ggplot(diamonds, aes(color, price)) +
-  geom_boxplot()
-
+  geom_boxplot() +
+  labs(title = "Price by color")
+# Median price for each level of color
+diamonds |>
+  group_by(color) |>
+  summarise(n = n(), median_price = median(price))
+```
+`Color`: the median price grows steadily going from the best colors (D, E) to the worst ones (I, J).
+```{r}
+# Price distribution by clarity
 ggplot(diamonds, aes(clarity, price)) +
-  geom_boxplot()
+  geom_boxplot() +
+  labs(title = "Price by clarity")
+# Median price for each level of clarity
+diamonds |>
+  group_by(clarity) |>
+  summarise(n = n(), median_price = median(price))
+```
+`Clarity`: the two worst classes (I1, SI2) have the highest median prices, the best classes (VVS1, IF) have the lowest ones.
+
+
+The data shows that higher quality diamonds appear to be cheaper: the trend is clear for `color` and `clarity`, and less regular (but still visible) for `cut`.
+
+### 2. Using models, find an explanation and solve the apparent paradox.
+
+We think that there is another variable, influencing both the quality and the price of each diamond, and causing this apparent paradox. We suppose that this variable is `carat`, and we want to show that.
+
+First, we want to observe the `carat` variable.
+```{r}
+# Scatter plot of price against carat
+diamonds |>
+  ggplot(aes(carat, price)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Price against carat scatterplot")
+
+# Strength of the association
+cor(diamonds$carat, diamonds$price, method = "pearson")
+cor(diamonds$carat, diamonds$price, method = "spearman")
 ```
 
+We see a strong positive association (Pearson ca. 0.92). The relationship is non-linear: price increases more than proportionally with weight, with a larger spread for heavier diamonds. We can also notice concentrations (vertical lines) around round carat values (0.5, 1, 1.5, 2), likely reflecting buyers' psychological preferences.
+
+Let's now observe how carat weight relates to other quality variables.
+```{r}
+# Carat distribution by cut level
+ggplot(diamonds, aes(carat, cut)) +
+  geom_boxplot() +
+  labs(title = "Carat by cut")
+# Median carat and median price for each level of cut
+diamonds |>
+  group_by(cut) |>
+  summarise(
+    n = n(),
+    median_carat = median(carat),
+    median_price = median(price)
+  )
+```
+```{r}
+# Carat distribution by color level
+ggplot(diamonds, aes(carat, color)) +
+  geom_boxplot() +
+  labs(title = "Carat by color")
+# Median carat and median price for each level of color
+diamonds |>
+  group_by(color) |>
+  summarise(
+    n = n(),
+    median_carat = median(carat),
+    median_price = median(price)
+  )
+```
+```{r}
+# Carat distribution by clarity level
+ggplot(diamonds, aes(carat, clarity)) +
+  geom_boxplot() +
+  labs(title = "Carat by clarity")
+# Median carat and median price for each level of clarity
+diamonds |>
+  group_by(clarity) |>
+  summarise(
+    n = n(),
+    median_carat = median(carat),
+    median_price = median(price)
+  )
+```
+We observe that the medians of `carat` follow the same trend of those of `price`, in all the quality variables. This shows that lower quality diamonds tend to be heavier, and suggests that their higher weight raises their price more than their lower quality reduces it. We verify this hypothesis with a model.
+
+We want to fit a model between carat and price, so let's try a linear one.
+```{r}
+mod_carat <- lm(price ~ carat, data = diamonds)
+
+summary(mod_carat)
+
+
+```
+
+```{r}
+# Add residuals to the data
+diamonds2 <- add_residuals(diamonds, mod_carat) |>
+  select(carat, cut, color, clarity, price, resid)
+
+# Scatterplot of residuals against carat
+ggplot(diamonds2, aes(carat, resid)) +
+  geom_ref_line(h = 0) +
+  geom_point(alpha = 0.1)
+
+```
+
+The residuals of the linear model still show a clear pattern with respect to carat: the relationship between carat and price is not linear, so the model does not fully capture the effect of weight.
+
+To fix this, we use the same model, but we transform the variables using the logarithm.
+
+```{r}
+diamonds2 <- diamonds2 |>
+  mutate(log_price = log(price), log_carat = log(carat))
+
+# Scatter plot on the log scale
+ggplot(diamonds2, aes(log_carat, log_price)) +
+  geom_point(alpha = 0.1)
+
+# Linear model with log scale
+mod_log <- lm(log_price ~ log_carat, data = diamonds2)
+summary(mod_log)
+
+# Model visualization
+grid <- data_grid(diamonds2, log_carat)
+grid <- add_predictions(grid, mod_log)
+
+ggplot(diamonds2, aes(x = log_carat)) +
+  geom_point(aes(y = log_price), alpha = 0.1) +
+  geom_line(data = grid, mapping = aes(y = pred), color = "red")
+```
+
+
+```{r}
+# We add residuals of the log model
+diamonds2 <- add_residuals(diamonds2, mod_log, var = "log_resid")
+
+ggplot(diamonds2, aes(log_carat, log_resid)) +
+  geom_ref_line(h = 0) +
+  geom_point(alpha = 0.1)
+```
+
+The relationship becomes linear on the log scale. We therefore fit the same linear model on log(carat) and log(price). The residuals of this model show no pattern with respect to carat: they represent the part of the price that is not explained by weight.
+
+
+```{r}
+ggplot(diamonds2, aes(cut, log_resid)) +
+  geom_ref_line(h = 0) +
+  geom_boxplot() +
+  labs(title = "Residual price by cut")
+
+ggplot(diamonds2, aes(color, log_resid)) +
+  geom_ref_line(h = 0) +
+  geom_boxplot() +
+  labs(title = "Residual price by color")
+
+ggplot(diamonds2, aes(clarity, log_resid)) +
+  geom_ref_line(h = 0) +
+  geom_boxplot() +
+  labs(title = "Residual price by clarity")
+```
+
+Once the effect of weight is removed, the relationship between quality and price is the expected one: for the same carat, better cut, color and clarity correspond to higher prices. The apparent paradox is explained by carat: low quality diamonds tend to be heavier, and weight is the most important factor in determining price.
