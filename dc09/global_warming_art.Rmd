@@ -1,0 +1,235 @@
+---
+title: "Global warming through data - an artistic approach"
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(tidyverse)
+```
+
+## Objective
+
+Starting from the NASA [GISTEMP dataset](https://data.giss.nasa.gov/gistemp/data_v4.html), our goal is to artistically visualize the evolution of global temperatures over time. We aim to move beyond conventional data visualization techniques by creating a distinctive and visually compelling representation that combines artistic expression with statistical accuracy, while preserving the underlying data and its meaning.
+
+## Importing and tidying the data
+
+```{r}
+url <- paste0(
+  "https://data.giss.nasa.gov/gistemp/",
+  "tabledata_v4/GLB.Ts+dSST.csv"
+)
+
+temp_raw <- read_csv(
+  url,
+  skip = 1,
+  na = c("***", "****"),
+  show_col_types = FALSE
+)
+
+glimpse(temp_raw)
+```
+
+```{r}
+temp <- temp_raw |>
+  select(Year, Jan:Dec) |>
+  pivot_longer(
+    cols = Jan:Dec,
+    names_to = "month",
+    values_to = "anomaly"
+  ) |>
+  mutate(
+    month = factor(month, levels = month.abb),
+    date = as.Date(
+      paste(Year, month, "01", sep = "-"),
+      format = "%Y-%b-%d"
+    )
+  ) |>
+  drop_na(anomaly)
+
+temp <- temp |>
+  mutate(month = match(month, month.abb))
+
+head(temp, n = 12)
+
+glimpse(temp)
+
+```
+
+
+## Artwork generation
+
+
+```{r}
+# number of points used to draw the curve of each blade
+n_points <- 12
+
+# define needed data, one blade of grass per monthly observation
+grass <- temp |>
+  mutate(
+    blade_id = row_number(),
+    # divide in rows, one per each decade, oldest on top
+    decade = (Year %/% 10) * 10,
+    row = (decade - min(decade)) / 10,
+    # horizontal position within the decade (from 0 to 10 years)
+    x_root = (Year - decade) + (month - 1) / 12,
+    y_root = -row,
+    
+    # heat stress: 0 is coldest month on record, 1 warmest
+    # stress = rescale(anomaly, to = c(0, 1)),
+    
+    # healthy blades are tall green and straight,
+    # stressed blades are short red and bent
+    # height = 1.1 - 0.85 * stress,
+    # lean = 1.1 * stress
+    
+    # raw anomaly: 0 is the 1951-1980 average
+    height = 0.8 - 0.35 * anomaly,
+    lean = 0.7 * anomaly
+  )
+
+# bending of the blades
+# t = 0 is the root, t = 1 is the tip
+blades <- grass |>
+  cross_join(tibble(t = seq(0, 1, length.out = n_points))) |>
+  mutate(
+    x = x_root + lean * t^2, # bends more towards the tip
+    y = y_root + height * t, # grows steadily upwards
+    width = 0.75 * (1 - 0.8 * t) # thick at the root, thin at the tip
+  )
+
+# labels for the decades
+decade_labels <- grass |>
+  distinct(decade, y_root)
+
+# Legend: three sample blades drawn with the same rules
+legend_y <- min(grass$y_root) - 1.9
+
+legend_grass <- tibble(
+  anomaly = c(-0.8, 0, 1.5),
+  label = c(
+    "-0.8 \u00B0C\ncolder than average:\ntall, green, leaning left",
+    "0 \u00B0C\n1951-1980 average:\nupright",
+    "+1.5 \u00B0C\nwarmer than average:\nshort, red, leaning right"
+  ),
+  blade_id = c(-1, -2, -3),
+  x_root = c(2, 5, 8),
+  y_root = legend_y
+) |>
+  mutate(
+    # same mapping used for the real blades
+    height = 0.8 - 0.35 * anomaly,
+    lean = 0.7 * anomaly
+  )
+
+legend_blades <- legend_grass |>
+  cross_join(tibble(t = seq(0, 1, length.out = n_points))) |>
+  mutate(
+    x = x_root + lean * t^2,
+    y = y_root + height * t,
+    # slightly thicker than real blades, to be readable
+    width = 1.5 * (1 - 0.8 * t)
+  )
+
+# Artwork
+artwork <- ggplot(blades) +
+  geom_path(
+    aes(
+      x = x,
+      y = y,
+      group = blade_id,
+      color = anomaly,
+      linewidth = width
+    ),
+    lineend = "round"
+  ) +
+  geom_text(
+    data = decade_labels,
+    aes(x = -0.25,
+        y = y_root + 0.12,
+        label = decade),
+    hjust = 1,
+    size = 3,
+    color = "grey45",
+    family = "serif"
+  ) +
+  # legend blades
+  geom_path(
+    data = legend_blades,
+    aes(
+      x = x, y = y,
+      group = blade_id,
+      color = anomaly,
+      linewidth = width
+    ),
+    lineend = "round"
+  ) +
+  # legend captions
+  geom_text(
+    data = legend_grass,
+    aes(x = x_root, y = y_root - 0.2, label = label),
+    vjust = 1,
+    size = 2.8,
+    lineheight = 0.95,
+    color = "grey35",
+    family = "serif"
+  ) +
+  scale_color_gradientn(
+    colors = c(
+      "#0B5D3B", "#3E9B4F", "#B7C65A",
+      "#E0A93B", "#C4541F", "#7A1712"
+    ),
+    values = rescale(c(-0.8, -0.3, 0.1, 0.5, 0.95, 1.5)),
+    limits = c(-0.85, 1.55),
+    oob = squish,
+    guide = "none"
+  ) +
+  scale_linewidth_identity() +
+  scale_x_continuous(limits = c(-1, 11.2)) +
+  scale_y_continuous(expand = expansion(add = c(1.3, 0.3))) +
+  labs(
+    title = "As the grass burns",
+    subtitle = "Each blade of grass is one month of global temperature, 1880 to today"
+  ) +
+  theme_void(base_family = "serif") +
+  theme(
+    plot.background = element_rect(fill = "#F6F1E7", color = NA),
+    plot.title = element_text(
+      size = 24, face = "bold", hjust = 0.5,
+      margin = margin(t = 14, b = 4)
+    ),
+    plot.subtitle = element_text(
+      size = 11, hjust = 0.5, color = "grey35",
+      margin = margin(b = 10)
+    ),
+    plot.margin = margin(10, 20, 10, 20)
+  )
+```
+```{r, fig.width = 8, fig.height = 8, dpi = 200, out.width = "100%"}
+artwork
+```
+
+
+The idea behind the artwork is to visualize the change of temperature through the years as a field of grass. Each blade of grass represents a month of the dataset, and its color, length and curve represent the anomaly of that month.
+
+The grass field is read like a page of text: each row is a decade, from the 1880s at the top to the 2020s at the bottom, and within a row the blades follow one another month by month from left to right. All three visual properties of a blade are computed directly from the raw anomaly of its month, so that zero corresponds to the 1951–1980 average. The height decreases linearly with the anomaly (`height = 0.8 - 0.35 * anomaly`), so colder months grow taller and warmer months stay shorter. The sideways displacement of the tip is proportional to the anomaly (`lean = 0.7 * anomaly`): a month at the baseline stands upright, a colder month leans to the left and a warmer month leans to the right. The color follows a gradient from dark green for the coldest months, through yellow around the baseline, to dark red for the warmest ones.
+
+To draw a curved blade instead of a straight segment, each observation is expanded into 12 points along a parameter `t` that goes from 0 at the root to 1 at the tip. The vertical position grows steadily with `t`, while the horizontal displacement grows with `t^2`, so the blade starts almost vertical and bends progressively towards the tip, tracing an arc of parabola. The points of each blade are connected with `geom_path()`, and the line width decreases from root to tip to give the blade a tapered shape. The three blades below the grass field act as a legend: they are generated with the same formulas, using the coldest anomaly on record, the baseline and the warmest anomaly on record.
+
+The result is a field that is tall, green and leaning one way at the top, and gradually turns short, red and flattened in the opposite direction at the bottom: the warming trend is visible as the grass withers decade after decade.
+
+```{r echo = FALSE}
+ggsave("asthegrassburns.png", artwork, width = 8, height = 8, dpi = 300)
+```
+
+
+
