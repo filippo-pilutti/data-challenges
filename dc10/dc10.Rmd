@@ -1,0 +1,198 @@
+---
+title: "Global warming through data - an artistic approach"
+author: "Filippo Pilutti"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Setup, import, data exploration
+
+```{r}
+library(tidyverse)
+
+# Download data
+co2_raw <- read_csv(
+  "https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.csv")
+
+# Save data locally
+write_csv(co2_raw, "data/owid.csv")
+```
+
+```{r}
+co2_raw <- read_csv("data/owid.csv")
+
+# First data exploration
+glimpse(co2_raw)
+
+# Year ranges
+range(co2_raw$year)
+
+# Number of distinct entries for country
+n_distinct(co2_raw$country)
+
+# Lines without ISO represent aggregates
+co2_raw |>
+  filter(is.na(iso_code)) |>
+  distinct(country) |>
+  print(n = Inf)
+```
+
+We notice that we have some aggregates for the countries, such as `World`, `Africa`, `Asia`, ...
+
+We should get rid of them, otherwise we will consider the data many times for each country. We also notice that Kosovo does not have an ISO code, so we should not discard it with the other aggregates.
+
+Let's build two data frames, one keeping only the countries with a valid ISO code, plus Kosovo, which does not have an official ISO code, the other with the total global data. We will only keep the variables we need for our analysis.
+
+```{r}
+co2_countries <- co2_raw |>
+  filter(!is.na(iso_code) | country == "Kosovo") |>
+  select(country, iso_code, year, population, gdp, co2, co2_per_capita,
+         cumulative_co2, coal_co2, oil_co2, gas_co2)
+n_distinct(co2_countries$country)
+glimpse(co2_countries)
+
+co2_world <- co2_raw |>
+  filter(country == "World") |>
+  select(year, population, co2, co2_per_capita, cumulative_co2, coal_co2,
+         oil_co2, gas_co2)
+co2_world
+```
+
+```{r}
+# Number of countries with a non-missing co2 value, per year
+coverage <- co2_countries |>
+  filter(!is.na(co2)) |>
+  count(year, name = "n_countries")
+
+ggplot(coverage, aes(x = year, y = n_countries)) +
+  geom_line() +
+  labs(title = "Countries with CO2 data, by year",
+       x = "Year", y = "Number of countries")
+```
+
+## Data visualization
+
+
+
+
+### Global trend
+
+```{r}
+# Visualize the trend of global co2 emissions
+world_plot <- co2_world |>
+  # Convert co2 from millions to billions of tonnes
+  ggplot(aes(x = year, y = co2 / 1000)) +
+  geom_line(linewidth = 0.8) +
+  labs(title = "Global CO2 emissions", x = "Year",
+       y = "Billion tonnes of CO2 per year") +
+  theme_minimal()
+world_plot
+```
+
+We can see a clear positively increasing trend. We notice that in some years there have been decreases in the emissions. Let's try to find in which years, and what could have caused them.
+
+```{r}
+# Years with the largest drops in global emissions in percentage
+co2_world |>
+  # Change with respect to the previous year
+  mutate(change_pct = (co2 - lag(co2)) / lag(co2) * 100) |>
+  filter(year >= 1900) |>
+  arrange(change_pct) |>
+  select(year, co2, change_pct) |>
+  head(8)
+# Years with the largest absolute drops in global emissions
+co2_world |>
+  mutate(change = co2 - lag(co2)) |> # Change with respect to the previous year
+  filter(year >= 1900) |>
+  arrange(change) |>
+  select(year, co2, change) |>
+  head(8)
+```
+
+We notice some interesting years:
+
+- **1914**: First World War
+- **1919 - 1921**: Post-war recession after World War 1
+- **1930 - 1932**: Great Depression
+- **1945**: End of World War 2
+- **1981**: Oil crisis
+- **1992**: USSR collapse
+- **2009**: Financial crisis
+- **2020**: COVID-19 pandemic
+
+```{r}
+# Historical events
+events <- tibble(
+  year = c(1914, 1930, 1945, 1981, 1992, 2009, 2020),
+  label = c("World War I", "Great Depression", "End of World War II",
+            "Oil crisis", "USSR collapse", "Financial crisis", "COVID-19")
+)
+
+# Visualize world events on the global trend plot
+world_plot <- world_plot +
+  coord_cartesian(xlim = c(1900, NA)) +
+  geom_vline(data = events, aes(xintercept = year),
+             linetype = "dashed", color = "grey60") +
+  geom_text(data = events, aes(x = year, y = 41, label = label),
+            angle = 90, hjust = 1, vjust = -0.4, size = 3, color = "grey30")
+world_plot
+  
+```
+
+Two key observations emerge from the historical trend of global CO2 emissions:
+
+- Following each decline, emissions have resumed their upward trajectory relatively quickly.
+- Historically, major reductions in global CO2 emissions have coincided primarily with economic crises and wars, rather than climate policies or deliberate environmental action.
+
+### Cumulative global emissions
+
+```{r}
+# Cumulative CO2 emissions released before/after a given year
+co2_world |>
+  mutate(share = cumulative_co2 / last(cumulative_co2)) |>
+  filter(year %in% c(1900, 1950, 1990, 2000, 2010, 2020)) |>
+  transmute(
+    year,
+    emitted_before = scales::percent(share),
+    emitted_after = scales::percent(1 - share)
+  )
+```
+
+
+
+```{r}
+# Total emissions per 25-year period, with all years up to 1900 in one group
+last_year  <- max(co2_world$year)
+period_len <- 25
+first_year <- min(co2_world$year)
+cutoff     <- 1900
+
+periods <- co2_world |>
+  mutate(end = last_year - (last_year - year) %/% period_len * period_len,
+         period = if_else(year <= cutoff,
+                          paste0(first_year, "-", cutoff),
+                          paste0(end - period_len + 1, "-", end))) |>
+  group_by(period) |>
+  summarise(emissions = sum(co2)) |>
+  mutate(share = emissions / sum(emissions))
+
+periods
+
+ggplot(periods, aes(x = period, y = share)) +
+  geom_col(fill = "firebrick") +
+  geom_text(aes(label = scales::percent(share, accuracy = 1)), vjust = -0.3) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Share of all CO2 ever emitted, by period",
+       subtitle = "The first bar covers 151 years, the others 25 years each",
+       x = NULL, y = NULL) +
+  theme_minimal()
+```
+
