@@ -368,3 +368,123 @@ ggplot(fuels_top, aes(x = emissions, y = country, fill = fuel)) +
 ```
 
 Coal was the dominant source of CO₂ emissions until the late 1960s, when oil overtook it with the post-war expansion of road transport and industry. Since the early 2000s coal has regained first place, driven mainly by China’s rapid industrialisation, and global emissions from all three fuels are still growing. The fuel mix varies widely between countries: coal accounts for about three quarters of fossil emissions in China and about 70% in India, while it has almost disappeared in the United Kingdom, Canada and France, where emissions come mostly from oil and gas. The countries whose emissions have already peaked are largely those that moved away from coal, while those still growing depend heavily on it.
+
+
+
+### Emissions vs. GDP
+
+We want to check whether there is a connection between countries GDP and their emissions.
+
+```{r}
+# Check which is the last year with a value for gdp
+last_gdp_year <- max(co2_raw$year[!is.na(co2_raw$gdp)])
+last_gdp_year
+```
+
+```{r}
+# Prepare GDP data for the last valid year for gdp
+gdp_countries <- co2_countries |>
+  filter(year == last_gdp_year, !is.na(gdp), co2 > 0) |>
+  mutate(log_gdp = log10(gdp),
+         log_co2 = log10(co2))
+```
+
+```{r}
+# Visualize with a scatterplot
+gdp_countries |>
+  ggplot(aes(x = gdp, y = co2,
+             color = country %in% top_cumulative$country)) +
+  geom_point(alpha = 0.7, size = 1.7) +
+  scale_color_manual(
+    values = c("FALSE" = "grey40", "TRUE" = "blue"),
+    breaks = "TRUE",
+    name = NULL
+  ) +
+  scale_x_log10(
+    labels = scales::label_number(
+      scale = 1e-9,
+      suffix = "B$",
+      accuracy = 1
+    )) +
+  scale_y_log10() +
+  labs(title = paste("GDP and CO2 emissions,", last_gdp_year),
+       subtitle = "Blue points represent the top cumulative CO2 emitters",
+       x = "GDP (billion dollars, log scale)",
+       y = "CO2 emission, million tonnes (log scale)",
+       color = "Top emittor") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+```{r}
+library(modelr)
+
+# Modelling
+model <- lm(log_co2 ~ log_gdp, data = gdp_countries)
+
+model$coefficients
+
+summary(model)$r.squared
+```
+
+```{r}
+# Visualize the model
+grid <- gdp_countries |>
+  data_grid(log_gdp) |>
+  add_predictions(model)
+
+gdp_countries |>
+  ggplot(aes(x = log_gdp, color = country %in% top_cumulative$country)) +
+  geom_point(aes(y = log_co2), alpha = 0.7) +
+  geom_line(data = grid, aes(y = pred), color = "firebrick") +
+  scale_color_manual(
+    values = c("FALSE" = "grey40", "TRUE" = "blue"),
+    breaks = "TRUE",
+    name = NULL
+  ) +
+  labs(title = paste("GDP and CO2 emissions,", last_gdp_year),
+       subtitle = "Model predictions",
+       x = "log10(GDP)",
+       y = "log10(CO2 emissions)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+library(ggrepel)
+
+# Residuals
+gdp_countries <- gdp_countries |>
+  add_residuals(model)
+
+# Countries emitting much more than expected given their GDP
+highest <- 
+  gdp_countries |> slice_max(resid, n = 5) |> select(country, resid, log_gdp)
+highest
+
+# Countries emitting much less than expected given their GDP
+lowest <- 
+  gdp_countries |> slice_min(resid, n = 5) |> select(country, resid, log_gdp)
+lowest
+
+
+gdp_countries |>
+  ggplot(aes(x = log_gdp, y = resid)) +
+  geom_ref_line(h = 0) +
+  geom_point(alpha = 0.5) +
+  geom_point(data = highest, color = "firebrick") +
+  geom_text_repel(data = highest, aes(label = country),
+            size = 3, color = "firebrick") +
+  geom_point(data = lowest, color = "blue") +
+  geom_text_repel(data = lowest, aes(label = country),
+            size = 3, color = "blue") +
+  labs(title = "Residuals of the GDP-CO2 model",
+       subtitle = 
+         "Red: countries emitting much more CO2 than expected given their GDP\n
+       Blue: countries emitting much less CO2 than expected given their GDP",
+       x = "log10(GDP)", y = "Residual") 
+```
+
+The scatterplot on logarithmic scales shows a strong, almost linear relationship between a country’s GDP and its CO2 emissions. A linear model on the log-transformed variables confirms it: GDP explains about 92% of the variation in emissions across countries (R² = 0.92), and the slope is close to 1 (1.01). Emissions grow roughly in proportion to GDP, so a country with a GDP ten times larger emits, on average, about ten times more CO2. The largest historical emitters lie close to the regression line, which means their emissions are mostly explained by the size of their economies. The residuals show which countries deviate most from this trend. North Korea, Turkmenistan, Trinidad and Tobago, Mongolia and Venezuela emit three to seven times more than expected, because their economies rely heavily on coal or on oil and gas extraction. Switzerland emits about a third of what its GDP would predict, thanks to a service-based economy and an almost carbon-free electricity supply. Uganda, the Democratic Republic of Congo, Sri Lanka and Ethiopia are also well below the line, largely because much of their energy comes from biomass, which is not included in fossil CO2 emissions. These results describe an association, not a causal effect: both GDP and emissions grow with population, so part of the relationship simply reflects the size of countries.
+
